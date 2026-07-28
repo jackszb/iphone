@@ -1,0 +1,75 @@
+name: Build sing-box rule-set (.srs)
+
+on:
+  push:
+    paths:
+      - "rules-src/**/*.json"
+  workflow_dispatch:
+    inputs:
+      sing_box_version:
+        description: "sing-box 版本号（不带 v 前缀，例如 1.10.3）"
+        required: false
+        default: "1.11.15"
+
+env:
+  # 默认使用的自定义版本；手动触发时可被 workflow_dispatch 输入覆盖
+  SING_BOX_VERSION: ${{ github.event.inputs.sing_box_version || '1.10.3' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1️⃣ 拉取代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2️⃣ 安装自定义指定版本 sing-box
+      - name: Install custom version sing-box
+        run: |
+          SB_VER="${SING_BOX_VERSION}"
+          echo "Using pinned sing-box version: $SB_VER"
+
+          echo "Downloading sing-box..."
+          curl -L -o sing-box.tar.gz \
+            https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/sing-box-${SB_VER}-linux-amd64.tar.gz
+          tar -xzf sing-box.tar.gz
+          chmod +x sing-box-${SB_VER}-linux-amd64/sing-box
+          mv sing-box-${SB_VER}-linux-amd64/sing-box ./sing-box
+
+      # 3️⃣ 调试版本输出
+      - name: Check sing-box version
+        run: |
+          ./sing-box version
+          ls -l ./sing-box
+
+      # 4️⃣ 清空旧 rules 目录并生成 srs
+      - name: Compile json → srs
+        run: |
+          mkdir -p rules
+          rm -f rules/*.srs
+          for file in rules-src/*.json; do
+            name=$(basename "$file" .json)
+            echo "Compiling $file → rules/$name.srs"
+            if ! ./sing-box rule-set compile "$file" -o "rules/$name.srs"; then
+              echo "Error compiling $file"
+              exit 1
+            fi
+          done
+
+          echo "Files in rules directory:"
+          ls -lh rules/
+          echo "Hex preview of each srs file:"
+          for f in rules/*.srs; do
+            echo "---- $f ----"
+            hexdump -C "$f" | head
+          done
+
+      # 5️⃣ 强制 commit 更新
+      - name: Commit srs
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add rules/*.srs
+          git commit -m "build: update rule-set srs" || echo "No changes to commit"
+          git push || echo "Nothing to push"
