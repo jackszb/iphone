@@ -5,15 +5,10 @@ on:
     paths:
       - "rules-src/**/*.json"
   workflow_dispatch:
-    inputs:
-      sing_box_version:
-        description: "sing-box 版本号（不带 v 前缀，例如 1.10.3）"
-        required: false
-        default: "1.11.15"
 
 env:
-  # 默认使用的自定义版本；手动触发时可被 workflow_dispatch 输入覆盖
-  SING_BOX_VERSION: ${{ github.event.inputs.sing_box_version || '1.10.3' }}
+  # 固定使用的 sing-box 版本号（不带 v 前缀），需要升级时直接改这里
+  SING_BOX_VERSION: "1.11.15"
 
 jobs:
   build:
