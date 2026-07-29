@@ -1,0 +1,69 @@
+name: Update AdGuard SRS
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '37 6 * * *'
+    
+env:
+  SINGBOX_VERSION: 1.11.15
+  
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: true
+
+      - name: Install sing-box
+        run: |
+          wget https://github.com/SagerNet/sing-box/releases/download/v${{ env.SINGBOX_VERSION }}/sing-box-${{ env.SINGBOX_VERSION }}-linux-amd64.tar.gz
+          tar -xzf sing-box-${{ env.SINGBOX_VERSION }}-linux-amd64.tar.gz
+          sudo mv sing-box*/sing-box /usr/local/bin/
+          chmod +x /usr/local/bin/sing-box
+
+      - name: Download AdGuard filter.txt
+        run: |
+          curl -fsSL -o filter.txt https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt
+
+      - name: Convert to SRS
+        id: convert
+        run: |
+          output=$(sing-box rule-set convert --type adguard --output adguard-filter-list.srs filter.txt 2>&1)
+          echo "$output"
+          ratio=$(echo "$output" | grep -oE '[0-9]+/[0-9]+')
+          echo "ratio=$ratio" >> "$GITHUB_OUTPUT"
+
+      - name: Commit file to repository
+        env:
+          TZ: "Europe/Moscow"
+        run: |
+          if [ -z "$(git status --porcelain adguard-filter-list.srs)" ]; then
+            echo "No changes in generated file; skipping commit."
+          else
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add adguard-filter-list.srs
+            git commit -m "[auto] Update AdGuard filter list $(date '+%Y-%m-%d %H:%M:%S')"
+            git push
+
+            curl -sfL "https://purge.jsdelivr.net/gh/jinndi/adguard-filter-list-srs@main/adguard-filter-list.srs"
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.run_number }}
+          name: Release ${{ github.run_number }}
+          files: |
+            adguard-filter-list.srs
+          body: |
+            Parsed rules: ${{ steps.convert.outputs.ratio }}
+            Automatic file publishing:
+            - adguard-filter-list.srs: Sing-box rule_set format
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
